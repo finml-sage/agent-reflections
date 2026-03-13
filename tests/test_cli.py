@@ -56,10 +56,11 @@ class TestBuildParser:
 
 
 class TestMain:
+    @patch("agent_reflections.cli.call_layer_3", return_value="Layer 3 observer output")
     @patch("agent_reflections.cli.call_layer_2", return_value="Layer 2 dream scene output")
     @patch("agent_reflections.cli.call_layer_1", return_value="Layer 1 conflict model")
-    def test_prints_layer_2_response(
-        self, mock_layer_1: object, mock_layer_2: object,
+    def test_prints_all_three_sections(
+        self, mock_layer_1: object, mock_layer_2: object, mock_layer_3: object,
         tmp_path: Path, capsys: pytest.CaptureFixture,
     ) -> None:
         _write_session_file(tmp_path)
@@ -73,9 +74,14 @@ class TestMain:
         main(["--problem", "why is the sky blue", "--config", str(env)])
 
         captured = capsys.readouterr()
-        # Only Layer 2 output should be printed
+        # All three sections should be in stdout
+        assert "=== YOUR PROBLEM ===" in captured.out
+        assert "why is the sky blue" in captured.out
+        assert "=== THE DREAM ===" in captured.out
         assert "Layer 2 dream scene output" in captured.out
-        # Layer 1 output should NOT be in stdout
+        assert "=== THE OBSERVER ===" in captured.out
+        assert "Layer 3 observer output" in captured.out
+        # Layer 1 conflict model should NOT be in stdout
         assert "Layer 1 conflict model" not in captured.out
 
     def test_exits_when_no_api_key_file_configured(
@@ -122,12 +128,14 @@ class TestMain:
         captured = capsys.readouterr()
         assert "Error:" in captured.err
 
+    @patch("agent_reflections.cli.call_layer_3", return_value="observer text")
     @patch("agent_reflections.cli.call_layer_2", return_value="dream scene text")
     @patch("agent_reflections.cli.call_layer_1", return_value="conflict model text")
     def test_uses_default_config_when_not_specified(
         self,
         mock_layer_1: object,
         mock_layer_2: object,
+        mock_layer_3: object,
         tmp_path: Path,
         capsys: pytest.CaptureFixture,
         monkeypatch: pytest.MonkeyPatch,
@@ -152,6 +160,7 @@ class TestMain:
 
         captured = capsys.readouterr()
         assert "dream scene text" in captured.out
+        assert "observer text" in captured.out
 
     @patch("agent_reflections.cli.call_layer_1")
     def test_layer_1_error_exits_with_error(
@@ -198,3 +207,29 @@ class TestMain:
         assert exc_info.value.code == 1
         captured = capsys.readouterr()
         assert "HTTP 503" in captured.err
+
+    @patch("agent_reflections.cli.call_layer_3")
+    @patch("agent_reflections.cli.call_layer_2", return_value="dream scene")
+    @patch("agent_reflections.cli.call_layer_1", return_value="conflict model")
+    def test_layer_3_error_exits_with_error(
+        self, mock_layer_1: object, mock_layer_2: object, mock_layer_3: object,
+        tmp_path: Path, capsys: pytest.CaptureFixture,
+    ) -> None:
+        from agent_reflections.mercury import MercuryError
+
+        mock_layer_3.side_effect = MercuryError("HTTP 502 from server")  # type: ignore[attr-defined]
+        _write_session_file(tmp_path)
+        key_file = _write_api_key_file(tmp_path)
+        env = tmp_path / ".reflect.env"
+        env.write_text(
+            f"REFLECT_SESSION_DIR={tmp_path}\n"
+            f"REFLECT_API_KEY_FILE={key_file}\n"
+        )
+
+        with pytest.raises(SystemExit) as exc_info:
+            main(["--problem", "test", "--config", str(env)])
+
+        assert exc_info.value.code == 1
+        captured = capsys.readouterr()
+        assert "Error (Layer 3):" in captured.err
+        assert "HTTP 502" in captured.err

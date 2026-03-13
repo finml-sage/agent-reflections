@@ -8,7 +8,7 @@ from pathlib import Path
 
 from .config import load_config
 from .context import assemble_context
-from .mercury import MercuryError, call_layer_1, call_layer_2, read_api_key
+from .mercury import MercuryError, call_layer_1, call_layer_2, call_layer_3, read_api_key
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -68,7 +68,7 @@ def main(argv: list[str] | None = None) -> None:
         print(f"Error (Layer 1): {exc}", file=sys.stderr)
         raise SystemExit(1) from None
 
-    # Layer 2: Dream scene (printed to stdout)
+    # Layer 2: Dream scene (captured, not printed yet)
     try:
         dream = call_layer_2(
             conflict_model=conflict_model,
@@ -80,7 +80,23 @@ def main(argv: list[str] | None = None) -> None:
         print(f"Error (Layer 2): {exc}", file=sys.stderr)
         raise SystemExit(1) from None
 
-    print(dream)
+    # Layer 3: The Observer — return to first person
+    try:
+        observer = call_layer_3(
+            problem=args.problem,
+            dream=dream,
+            api_key=api_key,
+            base_url=config.base_url,
+            model=config.model,
+        )
+    except MercuryError as exc:
+        print(f"Error (Layer 3): {exc}", file=sys.stderr)
+        raise SystemExit(1) from None
+
+    # Print all three sections
+    print(f"=== YOUR PROBLEM ===\n\n{args.problem}\n")
+    print(f"=== THE DREAM ===\n\n{dream}\n")
+    print(f"=== THE OBSERVER ===\n\n{observer}")
 
 
 if __name__ == "__main__":
