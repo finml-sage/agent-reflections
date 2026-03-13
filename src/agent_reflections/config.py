@@ -27,7 +27,8 @@ class ReflectConfig:
     session_dir: Path
     session_depth: int
     sources: dict[str, SourceConfig] = field(default_factory=dict)
-    model: str = "grok-4-1-fast-reasoning"
+    model: str = "mercury-2"
+    base_url: str = "https://api.inceptionlabs.ai/v1"
     api_key_file: Path | None = None
 
     def __post_init__(self) -> None:
@@ -119,7 +120,8 @@ def load_config(env_path: Path | None = None) -> ReflectConfig:
 
     sources = _build_sources(env)
 
-    model = env.get("REFLECT_MODEL", "grok-4-1-fast-reasoning")
+    model = env.get("REFLECT_MODEL", "mercury-2")
+    base_url = env.get("REFLECT_BASE_URL", "https://api.inceptionlabs.ai/v1")
 
     api_key_raw = env.get("REFLECT_API_KEY_FILE", "").strip()
     api_key_file = _expand_path(api_key_raw) if api_key_raw else None
@@ -129,5 +131,6 @@ def load_config(env_path: Path | None = None) -> ReflectConfig:
         session_depth=session_depth,
         sources=sources,
         model=model,
+        base_url=base_url,
         api_key_file=api_key_file,
     )

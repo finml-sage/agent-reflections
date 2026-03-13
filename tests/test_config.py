@@ -25,7 +25,7 @@ def env_file(tmp_path: Path) -> Path:
         f"REFLECT_SESSION_DEPTH=5\n"
         f"REFLECT_MEMORY_PATH={source_dir}\n"
         f"REFLECT_MEMORY_COUNT=3\n"
-        f"REFLECT_MODEL=grok-4-0709\n"
+        f"REFLECT_MODEL=mercury-2-turbo\n"
         f'REFLECT_API_KEY_FILE={tmp_path / "key.env"}\n'
     )
     return env
@@ -77,13 +77,13 @@ class TestLoadConfig:
         assert config.session_depth == 5
         assert "memory" in config.sources
         assert config.sources["memory"].count == 3
-        assert config.model == "grok-4-0709"
+        assert config.model == "mercury-2-turbo"
         assert config.api_key_file == tmp_path / "key.env"
 
     def test_defaults_when_no_file(self, tmp_path: Path) -> None:
         config = load_config(tmp_path / "nonexistent.env")
         assert config.session_depth == 10
-        assert config.model == "grok-4-1-fast-reasoning"
+        assert config.model == "mercury-2"
         assert config.sources == {}
 
     def test_defaults_when_none_path(self) -> None:
