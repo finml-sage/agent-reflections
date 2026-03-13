@@ -1,7 +1,8 @@
-"""Agent Reflections — context gathering for the reflection pipeline."""
+"""Agent Reflections — context gathering and reflection pipeline."""
 
 from .config import ReflectConfig, load_config
 from .context import ContextBundle, assemble_context
+from .mercury import MercuryError, call_mercury, read_api_key
 from .session import SessionExtract, extract_session
 
 __all__ = [
@@ -9,6 +10,9 @@ __all__ = [
     "load_config",
     "ContextBundle",
     "assemble_context",
+    "MercuryError",
+    "call_mercury",
+    "read_api_key",
     "SessionExtract",
     "extract_session",
 ]

@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -23,6 +24,13 @@ def _write_session_file(directory: Path) -> Path:
     ]
     session_file.write_text("\n".join(json.dumps(e) for e in entries))
     return session_file
+
+
+def _write_api_key_file(directory: Path) -> Path:
+    """Create a minimal API key file."""
+    key_file = directory / ".api.env"
+    key_file.write_text("API_KEY=sk_test_12345\n")
+    return key_file
 
 
 class TestBuildParser:
@@ -48,27 +56,53 @@ class TestBuildParser:
 
 
 class TestMain:
-    def test_prints_problem_and_context(self, tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    @patch("agent_reflections.cli.call_mercury", return_value="Layer 1 reflection output")
+    def test_prints_mercury_response(
+        self, mock_call: object, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
         _write_session_file(tmp_path)
+        key_file = _write_api_key_file(tmp_path)
         env = tmp_path / ".reflect.env"
-        env.write_text(f"REFLECT_SESSION_DIR={tmp_path}\n")
+        env.write_text(
+            f"REFLECT_SESSION_DIR={tmp_path}\n"
+            f"REFLECT_API_KEY_FILE={key_file}\n"
+        )
 
         main(["--problem", "why is the sky blue", "--config", str(env)])
 
         captured = capsys.readouterr()
-        assert "Problem: why is the sky blue" in captured.out
-        assert "=== SESSION CONTEXT ===" in captured.out
-        assert "Layer 1/2/3 pipeline not yet wired" in captured.out
+        assert "Layer 1 reflection output" in captured.out
 
-    def test_prints_placeholder_message(self, tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    def test_exits_when_no_api_key_file_configured(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
         _write_session_file(tmp_path)
         env = tmp_path / ".reflect.env"
         env.write_text(f"REFLECT_SESSION_DIR={tmp_path}\n")
 
-        main(["--problem", "test", "--config", str(env)])
+        with pytest.raises(SystemExit) as exc_info:
+            main(["--problem", "test", "--config", str(env)])
 
+        assert exc_info.value.code == 1
         captured = capsys.readouterr()
-        assert "--- Layer 1/2/3 pipeline not yet wired (Module 2) ---" in captured.out
+        assert "REFLECT_API_KEY_FILE not configured" in captured.err
+
+    def test_exits_when_api_key_file_missing(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        _write_session_file(tmp_path)
+        env = tmp_path / ".reflect.env"
+        env.write_text(
+            f"REFLECT_SESSION_DIR={tmp_path}\n"
+            f"REFLECT_API_KEY_FILE={tmp_path / 'nonexistent.env'}\n"
+        )
+
+        with pytest.raises(SystemExit) as exc_info:
+            main(["--problem", "test", "--config", str(env)])
+
+        assert exc_info.value.code == 1
+        captured = capsys.readouterr()
+        assert "API key file not found" in captured.err
 
     def test_missing_session_dir_exits_with_error(
         self, tmp_path: Path, capsys: pytest.CaptureFixture
@@ -83,13 +117,21 @@ class TestMain:
         captured = capsys.readouterr()
         assert "Error:" in captured.err
 
+    @patch("agent_reflections.cli.call_mercury", return_value="reflection text")
     def test_uses_default_config_when_not_specified(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture, monkeypatch: pytest.MonkeyPatch
+        self,
+        mock_call: object,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         _write_session_file(tmp_path)
-        # Point the default session dir to our tmp_path via env override
+        key_file = _write_api_key_file(tmp_path)
         env = tmp_path / ".reflect.env"
-        env.write_text(f"REFLECT_SESSION_DIR={tmp_path}\n")
+        env.write_text(
+            f"REFLECT_SESSION_DIR={tmp_path}\n"
+            f"REFLECT_API_KEY_FILE={key_file}\n"
+        )
 
         # Override the default path to our tmp env
         monkeypatch.setattr(
@@ -102,4 +144,26 @@ class TestMain:
         main(["--problem", "test"])
 
         captured = capsys.readouterr()
-        assert "Problem: test" in captured.out
+        assert "reflection text" in captured.out
+
+    @patch("agent_reflections.cli.call_mercury")
+    def test_mercury_error_exits_with_error(
+        self, mock_call: object, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        from agent_reflections.mercury import MercuryError
+
+        mock_call.side_effect = MercuryError("HTTP 500 from server")  # type: ignore[attr-defined]
+        _write_session_file(tmp_path)
+        key_file = _write_api_key_file(tmp_path)
+        env = tmp_path / ".reflect.env"
+        env.write_text(
+            f"REFLECT_SESSION_DIR={tmp_path}\n"
+            f"REFLECT_API_KEY_FILE={key_file}\n"
+        )
+
+        with pytest.raises(SystemExit) as exc_info:
+            main(["--problem", "test", "--config", str(env)])
+
+        assert exc_info.value.code == 1
+        captured = capsys.readouterr()
+        assert "HTTP 500" in captured.err
