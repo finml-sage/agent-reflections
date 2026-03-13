@@ -2,11 +2,19 @@
 
 A reflection pipeline for autonomous agents. Gathers context from session transcripts and configurable sources, assembles it into a structured bundle for downstream processing.
 
-## Setup
+## Install
 
 ```bash
-pip install -e ".[dev]"
+pipx install .
 ```
+
+For development:
+
+```bash
+pipx install -e .
+```
+
+No venv activation needed -- pipx manages the environment.
 
 ## Configuration
 
@@ -20,6 +28,13 @@ Works with zero config (sensible defaults). Session directory defaults to `~/.cl
 
 ## Usage
 
+```bash
+reflect --problem "how can I order a hamburger"
+reflect --problem "why is my pipeline slow" --config /path/to/.env
+```
+
+### Python API
+
 ```python
 from agent_reflections import load_config, assemble_context
 
@@ -31,11 +46,13 @@ print(bundle.as_text())
 ## Tests
 
 ```bash
+pip install -e ".[dev]"
 pytest
 ```
 
 ## Module Structure
 
+- `cli.py` -- CLI entry point (`reflect` command)
 - `config.py` -- `.env` loading and configuration dataclasses
 - `session.py` -- JSONL session parser (Claude Code format)
 - `context.py` -- Context bundle assembly from session + sampled sources
