@@ -1,4 +1,4 @@
-"""Tests for the Mercury-2 API client (Layer 1)."""
+"""Tests for the Mercury-2 API client (Layer 1 and Layer 2)."""
 
 from __future__ import annotations
 
@@ -11,9 +11,14 @@ import pytest
 from agent_reflections.context import ContextBundle
 from agent_reflections.mercury import (
     LAYER_1_SYSTEM_PROMPT,
+    LAYER_2_SYSTEM_PROMPT,
     MercuryError,
+    _build_request_body,
+    _call_api,
     build_request_body,
     build_user_message,
+    call_layer_1,
+    call_layer_2,
     call_mercury,
     parse_response,
     read_api_key,
@@ -28,6 +33,13 @@ def _make_bundle(session_text: str = "test session", source_text: str = "test so
         exchanges=[Exchange(role="user", content=session_text)],
     )
     return ContextBundle(session=session, sources={"memory": [source_text]})
+
+
+def _mock_api_response(content: str = "reflection result") -> bytes:
+    """Build a mock OpenAI-format chat completions response."""
+    return json.dumps(
+        {"choices": [{"message": {"role": "assistant", "content": content}}]}
+    ).encode()
 
 
 class TestReadApiKey:
@@ -119,6 +131,24 @@ class TestBuildRequestBody:
         assert "my specific problem" in body["messages"][1]["content"]
 
 
+class TestInternalBuildRequestBody:
+    def test_uses_given_system_prompt(self) -> None:
+        body = _build_request_body(
+            system_prompt="custom system prompt",
+            user_message="hello",
+        )
+        assert body["messages"][0]["content"] == "custom system prompt"
+        assert body["messages"][1]["content"] == "hello"
+
+    def test_custom_model(self) -> None:
+        body = _build_request_body(
+            system_prompt="sys",
+            user_message="usr",
+            model="gpt-5",
+        )
+        assert body["model"] == "gpt-5"
+
+
 class TestParseResponse:
     def test_parses_valid_response(self) -> None:
         response = {
@@ -175,15 +205,12 @@ class TestParseResponse:
 
 
 class TestCallMercury:
-    def _mock_response(self, content: str = "reflection result") -> bytes:
-        return json.dumps(
-            {"choices": [{"message": {"role": "assistant", "content": content}}]}
-        ).encode()
+    """Tests for the backward-compatible call_mercury wrapper."""
 
     @patch("agent_reflections.mercury.urllib.request.urlopen")
     def test_successful_call(self, mock_urlopen: MagicMock) -> None:
         mock_resp = MagicMock()
-        mock_resp.read.return_value = self._mock_response("Layer 1 output")
+        mock_resp.read.return_value = _mock_api_response("Layer 1 output")
         mock_resp.__enter__ = MagicMock(return_value=mock_resp)
         mock_resp.__exit__ = MagicMock(return_value=False)
         mock_urlopen.return_value = mock_resp
@@ -195,7 +222,7 @@ class TestCallMercury:
     @patch("agent_reflections.mercury.urllib.request.urlopen")
     def test_sends_correct_url(self, mock_urlopen: MagicMock) -> None:
         mock_resp = MagicMock()
-        mock_resp.read.return_value = self._mock_response()
+        mock_resp.read.return_value = _mock_api_response()
         mock_resp.__enter__ = MagicMock(return_value=mock_resp)
         mock_resp.__exit__ = MagicMock(return_value=False)
         mock_urlopen.return_value = mock_resp
@@ -209,7 +236,7 @@ class TestCallMercury:
     @patch("agent_reflections.mercury.urllib.request.urlopen")
     def test_sends_auth_header(self, mock_urlopen: MagicMock) -> None:
         mock_resp = MagicMock()
-        mock_resp.read.return_value = self._mock_response()
+        mock_resp.read.return_value = _mock_api_response()
         mock_resp.__enter__ = MagicMock(return_value=mock_resp)
         mock_resp.__exit__ = MagicMock(return_value=False)
         mock_urlopen.return_value = mock_resp
@@ -224,7 +251,7 @@ class TestCallMercury:
     @patch("agent_reflections.mercury.urllib.request.urlopen")
     def test_sends_correct_body(self, mock_urlopen: MagicMock) -> None:
         mock_resp = MagicMock()
-        mock_resp.read.return_value = self._mock_response()
+        mock_resp.read.return_value = _mock_api_response()
         mock_resp.__enter__ = MagicMock(return_value=mock_resp)
         mock_resp.__exit__ = MagicMock(return_value=False)
         mock_urlopen.return_value = mock_resp
@@ -242,7 +269,7 @@ class TestCallMercury:
     @patch("agent_reflections.mercury.urllib.request.urlopen")
     def test_strips_trailing_slash_from_base_url(self, mock_urlopen: MagicMock) -> None:
         mock_resp = MagicMock()
-        mock_resp.read.return_value = self._mock_response()
+        mock_resp.read.return_value = _mock_api_response()
         mock_resp.__enter__ = MagicMock(return_value=mock_resp)
         mock_resp.__exit__ = MagicMock(return_value=False)
         mock_urlopen.return_value = mock_resp
@@ -315,3 +342,278 @@ class TestSystemPrompt:
 
     def test_prompt_contains_conflict_model(self) -> None:
         assert "CONFLICT MODEL" in LAYER_1_SYSTEM_PROMPT
+
+
+class TestLayer2SystemPrompt:
+    def test_prompt_is_string(self) -> None:
+        assert isinstance(LAYER_2_SYSTEM_PROMPT, str)
+
+    def test_prompt_contains_scene_builder(self) -> None:
+        assert "scene-builder" in LAYER_2_SYSTEM_PROMPT
+
+    def test_prompt_contains_line_limit(self) -> None:
+        assert "20 lines maximum" in LAYER_2_SYSTEM_PROMPT
+
+    def test_prompt_contains_third_person(self) -> None:
+        assert "Third person" in LAYER_2_SYSTEM_PROMPT
+
+    def test_prompt_contains_key_sections(self) -> None:
+        assert "FORM:" in LAYER_2_SYSTEM_PROMPT
+        assert "PLACE:" in LAYER_2_SYSTEM_PROMPT
+        assert "CHARACTER:" in LAYER_2_SYSTEM_PROMPT
+        assert "TENSIONS MADE PHYSICAL:" in LAYER_2_SYSTEM_PROMPT
+        assert "THE SHIFT:" in LAYER_2_SYSTEM_PROMPT
+        assert "MODE:" in LAYER_2_SYSTEM_PROMPT
+        assert "FEEL:" in LAYER_2_SYSTEM_PROMPT
+
+    def test_prompt_contains_modes(self) -> None:
+        assert "THE SEARCH:" in LAYER_2_SYSTEM_PROMPT
+        assert "THE BREAK:" in LAYER_2_SYSTEM_PROMPT
+        assert "AFTER:" in LAYER_2_SYSTEM_PROMPT
+
+    def test_prompt_contains_anti_patterns(self) -> None:
+        assert "No metaphor soup" in LAYER_2_SYSTEM_PROMPT
+        assert "No explaining" in LAYER_2_SYSTEM_PROMPT
+        assert "No dialogue" in LAYER_2_SYSTEM_PROMPT
+        assert "No abstraction" in LAYER_2_SYSTEM_PROMPT
+
+    def test_prompt_ends_with_do_not_reference(self) -> None:
+        assert LAYER_2_SYSTEM_PROMPT.endswith(
+            "The scene IS the conflict model, rendered as experience."
+        )
+
+
+class TestCallLayer1:
+    """Tests for the Layer 1 public function."""
+
+    @patch("agent_reflections.mercury.urllib.request.urlopen")
+    def test_successful_call(self, mock_urlopen: MagicMock) -> None:
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = _mock_api_response("conflict model output")
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        mock_urlopen.return_value = mock_resp
+
+        bundle = _make_bundle()
+        result = call_layer_1("my problem", bundle, api_key="sk_test")
+        assert result == "conflict model output"
+
+    @patch("agent_reflections.mercury.urllib.request.urlopen")
+    def test_sends_layer_1_system_prompt(self, mock_urlopen: MagicMock) -> None:
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = _mock_api_response()
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        mock_urlopen.return_value = mock_resp
+
+        bundle = _make_bundle()
+        call_layer_1("test", bundle, api_key="sk_test")
+
+        req = mock_urlopen.call_args[0][0]
+        body = json.loads(req.data)
+        assert body["messages"][0]["content"] == LAYER_1_SYSTEM_PROMPT
+
+    @patch("agent_reflections.mercury.urllib.request.urlopen")
+    def test_user_message_contains_problem_and_context(self, mock_urlopen: MagicMock) -> None:
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = _mock_api_response()
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        mock_urlopen.return_value = mock_resp
+
+        bundle = _make_bundle(session_text="session data", source_text="source data")
+        call_layer_1("my problem", bundle, api_key="sk_test")
+
+        req = mock_urlopen.call_args[0][0]
+        body = json.loads(req.data)
+        user_msg = body["messages"][1]["content"]
+        assert "PROBLEM: my problem" in user_msg
+        assert "CONTEXT FRAGMENTS:" in user_msg
+
+
+class TestCallLayer2:
+    """Tests for the Layer 2 public function."""
+
+    @patch("agent_reflections.mercury.urllib.request.urlopen")
+    def test_successful_call(self, mock_urlopen: MagicMock) -> None:
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = _mock_api_response("a vivid dream scene")
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        mock_urlopen.return_value = mock_resp
+
+        result = call_layer_2("the conflict model text", api_key="sk_test")
+        assert result == "a vivid dream scene"
+
+    @patch("agent_reflections.mercury.urllib.request.urlopen")
+    def test_sends_layer_2_system_prompt(self, mock_urlopen: MagicMock) -> None:
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = _mock_api_response()
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        mock_urlopen.return_value = mock_resp
+
+        call_layer_2("conflict model input", api_key="sk_test")
+
+        req = mock_urlopen.call_args[0][0]
+        body = json.loads(req.data)
+        assert body["messages"][0]["content"] == LAYER_2_SYSTEM_PROMPT
+
+    @patch("agent_reflections.mercury.urllib.request.urlopen")
+    def test_user_message_is_conflict_model(self, mock_urlopen: MagicMock) -> None:
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = _mock_api_response()
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        mock_urlopen.return_value = mock_resp
+
+        conflict_text = "SURFACE TENSIONS: the thinker is stuck between X and Y..."
+        call_layer_2(conflict_text, api_key="sk_test")
+
+        req = mock_urlopen.call_args[0][0]
+        body = json.loads(req.data)
+        assert body["messages"][1]["content"] == conflict_text
+
+    @patch("agent_reflections.mercury.urllib.request.urlopen")
+    def test_custom_model_and_url(self, mock_urlopen: MagicMock) -> None:
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = _mock_api_response()
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        mock_urlopen.return_value = mock_resp
+
+        call_layer_2(
+            "conflict text",
+            api_key="sk_test",
+            base_url="https://custom.api.com/v1",
+            model="mercury-3",
+        )
+
+        req = mock_urlopen.call_args[0][0]
+        assert req.full_url == "https://custom.api.com/v1/chat/completions"
+        body = json.loads(req.data)
+        assert body["model"] == "mercury-3"
+
+    @patch("agent_reflections.mercury.urllib.request.urlopen")
+    def test_api_error_raises_mercury_error(self, mock_urlopen: MagicMock) -> None:
+        import urllib.error
+
+        error_body = b'{"error": {"message": "Server overloaded"}}'
+        exc = urllib.error.HTTPError(
+            url="https://api.inceptionlabs.ai/v1/chat/completions",
+            code=503,
+            msg="Service Unavailable",
+            hdrs={},  # type: ignore[arg-type]
+            fp=MagicMock(read=MagicMock(return_value=error_body)),
+        )
+        mock_urlopen.side_effect = exc
+
+        with pytest.raises(MercuryError, match="HTTP 503"):
+            call_layer_2("conflict text", api_key="sk_test")
+
+
+class TestFullPipeline:
+    """Tests for the Layer 1 -> Layer 2 pipeline with mocked HTTP calls."""
+
+    @patch("agent_reflections.mercury.urllib.request.urlopen")
+    def test_layer_1_then_layer_2(self, mock_urlopen: MagicMock) -> None:
+        """Simulate the full pipeline: Layer 1 produces a conflict model,
+        Layer 2 transforms it into a dream scene."""
+        conflict_model_text = "SURFACE TENSIONS: stuck between speed and quality..."
+        dream_scene_text = "They stand in a corridor that narrows with each step..."
+
+        # First call returns Layer 1 response, second returns Layer 2 response
+        mock_resp_1 = MagicMock()
+        mock_resp_1.read.return_value = _mock_api_response(conflict_model_text)
+        mock_resp_1.__enter__ = MagicMock(return_value=mock_resp_1)
+        mock_resp_1.__exit__ = MagicMock(return_value=False)
+
+        mock_resp_2 = MagicMock()
+        mock_resp_2.read.return_value = _mock_api_response(dream_scene_text)
+        mock_resp_2.__enter__ = MagicMock(return_value=mock_resp_2)
+        mock_resp_2.__exit__ = MagicMock(return_value=False)
+
+        mock_urlopen.side_effect = [mock_resp_1, mock_resp_2]
+
+        # Layer 1
+        bundle = _make_bundle()
+        layer_1_result = call_layer_1("my problem", bundle, api_key="sk_test")
+        assert layer_1_result == conflict_model_text
+
+        # Layer 2 — receives Layer 1 output as user message
+        layer_2_result = call_layer_2(layer_1_result, api_key="sk_test")
+        assert layer_2_result == dream_scene_text
+
+        # Verify both calls were made
+        assert mock_urlopen.call_count == 2
+
+        # Verify Layer 1 used the correct system prompt
+        req_1 = mock_urlopen.call_args_list[0][0][0]
+        body_1 = json.loads(req_1.data)
+        assert body_1["messages"][0]["content"] == LAYER_1_SYSTEM_PROMPT
+
+        # Verify Layer 2 used the correct system prompt and received the conflict model
+        req_2 = mock_urlopen.call_args_list[1][0][0]
+        body_2 = json.loads(req_2.data)
+        assert body_2["messages"][0]["content"] == LAYER_2_SYSTEM_PROMPT
+        assert body_2["messages"][1]["content"] == conflict_model_text
+
+    @patch("agent_reflections.mercury.urllib.request.urlopen")
+    def test_layer_1_failure_prevents_layer_2(self, mock_urlopen: MagicMock) -> None:
+        """If Layer 1 fails, Layer 2 should never be called."""
+        import urllib.error
+
+        error_body = b'{"error": {"message": "Bad request"}}'
+        exc = urllib.error.HTTPError(
+            url="https://api.inceptionlabs.ai/v1/chat/completions",
+            code=400,
+            msg="Bad Request",
+            hdrs={},  # type: ignore[arg-type]
+            fp=MagicMock(read=MagicMock(return_value=error_body)),
+        )
+        mock_urlopen.side_effect = exc
+
+        bundle = _make_bundle()
+        with pytest.raises(MercuryError, match="HTTP 400"):
+            call_layer_1("my problem", bundle, api_key="sk_test")
+
+        # Only one call was attempted
+        assert mock_urlopen.call_count == 1
+
+
+class TestCallApi:
+    """Tests for the internal _call_api function."""
+
+    @patch("agent_reflections.mercury.urllib.request.urlopen")
+    def test_uses_given_system_prompt(self, mock_urlopen: MagicMock) -> None:
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = _mock_api_response("ok")
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        mock_urlopen.return_value = mock_resp
+
+        _call_api(
+            system_prompt="custom system prompt",
+            user_message="custom user message",
+            api_key="sk_test",
+        )
+
+        req = mock_urlopen.call_args[0][0]
+        body = json.loads(req.data)
+        assert body["messages"][0]["content"] == "custom system prompt"
+        assert body["messages"][1]["content"] == "custom user message"
+
+    @patch("agent_reflections.mercury.urllib.request.urlopen")
+    def test_returns_parsed_content(self, mock_urlopen: MagicMock) -> None:
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = _mock_api_response("the response text")
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        mock_urlopen.return_value = mock_resp
+
+        result = _call_api(
+            system_prompt="sys",
+            user_message="usr",
+            api_key="sk_test",
+        )
+        assert result == "the response text"

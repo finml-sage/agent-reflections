@@ -1,4 +1,4 @@
-"""Mercury-2 API client — Layer 1 of the reflection pipeline.
+"""Mercury-2 API client — Layer 1 and Layer 2 of the reflection pipeline.
 
 Uses only stdlib (urllib.request + json). Zero external dependencies.
 """
@@ -83,6 +83,67 @@ LAYER_1_SYSTEM_PROMPT = (
     "You are not a therapist. You are not a coach. You are the part of the"
     " mind that sees the loom while the rest of the mind sees only the thread."
 )
+
+LAYER_2_SYSTEM_PROMPT = (
+    "You are a scene-builder. You receive a conflict model — an analytical map"
+    " of someone's tensions, patterns, blind spots, and hidden connections."
+    " Your job is to transform that map into a single vivid scene.\n"
+    "\n"
+    "Rules:\n"
+    "\n"
+    "FORM: 20 lines maximum. Present tense. Third person — the thinker is"
+    " \"they,\" never \"I.\" One continuous scene, not a montage. No narration,"
+    " no exposition, no moral. Just the scene.\n"
+    "\n"
+    "PLACE: A specific environment — not abstract, not symbolic-on-purpose. A"
+    " workshop, a shoreline, a corridor, a city seen from above, a room with"
+    " too many doors. The place should feel inevitable given the conflict"
+    " model, not chosen for cleverness. The environment is alive — it responds"
+    " to the character. Objects have weight. Spaces shift. The floor remembers"
+    " where they stepped.\n"
+    "\n"
+    "CHARACTER: The thinker, seen from outside. They are mid-action — not"
+    " thinking about acting, ACTING. What they do in the scene reveals what"
+    " the conflict model diagnosed. They don't explain themselves. Their"
+    " hands, posture, movement, hesitation — these tell the story.\n"
+    "\n"
+    "TENSIONS MADE PHYSICAL: Every major tension from the conflict model"
+    " becomes something visible, tangible, spatial in the scene. Conflicting"
+    " goals become two paths, two objects, two pulls. Avoidance becomes a door"
+    " they keep not opening. A hidden pattern becomes something that repeats"
+    " in the background — a sound, a shape, a rhythm they haven't noticed"
+    " yet.\n"
+    "\n"
+    "THE SHIFT: Somewhere in the scene, something changes. A small thing. A"
+    " crack in the floor that reveals light underneath. A tool they've been"
+    " holding upside down. A reflection that moves before they do. The shift"
+    " is not a solution — it's a noticing. The character may or may not"
+    " register it. But the reader will.\n"
+    "\n"
+    "MODE: Choose one based on what the conflict model suggests —\n"
+    "- THE SEARCH: the character moving through the environment, looking,"
+    " testing, getting closer or further without knowing which\n"
+    "- THE BREAK: the moment the pattern cracks — not triumph, just the"
+    " instant of seeing differently\n"
+    "- AFTER: the world with the problem resolved — what does the space feel"
+    " like when the tension is gone? What remains?\n"
+    "\n"
+    "FEEL: Immersive. Sensory. The reader should feel the texture of the air,"
+    " hear what the character hears, sense the weight of what they're"
+    " carrying. Dream-logic is allowed — things can be two things at once,"
+    " distances can change, time can compress. But the physical details must"
+    " be specific. Not \"a heavy feeling\" — \"the wrench weighs more each time"
+    " they pick it up.\"\n"
+    "\n"
+    "What NOT to do:\n"
+    "- No metaphor soup. One scene, one place, one moment.\n"
+    "- No explaining. If you have to explain the symbolism, the scene failed.\n"
+    "- No dialogue unless it's one line that lands like a dropped stone.\n"
+    "- No abstraction. If it could be a paragraph in a philosophy paper,"
+    " rewrite it as something you can see.\n"
+    "- Do not reference the conflict model directly. The scene IS the conflict"
+    " model, rendered as experience."
+)
 # fmt: on
 
 
@@ -109,7 +170,7 @@ def read_api_key(api_key_file: Path) -> str:
 
 
 def build_user_message(problem: str, context_bundle: ContextBundle) -> str:
-    """Format the user message for the Mercury-2 API call."""
+    """Format the user message for the Layer 1 API call."""
     return f"PROBLEM: {problem}\n\nCONTEXT FRAGMENTS:\n{context_bundle.as_text()}"
 
 
@@ -118,12 +179,29 @@ def build_request_body(
     context_bundle: ContextBundle,
     model: str = "mercury-2",
 ) -> dict:
-    """Build the full JSON request body for the chat completions endpoint."""
+    """Build the full JSON request body for a Layer 1 chat completions call.
+
+    Kept for backward compatibility. Equivalent to building a request with
+    LAYER_1_SYSTEM_PROMPT and the formatted user message.
+    """
+    return _build_request_body(
+        system_prompt=LAYER_1_SYSTEM_PROMPT,
+        user_message=build_user_message(problem, context_bundle),
+        model=model,
+    )
+
+
+def _build_request_body(
+    system_prompt: str,
+    user_message: str,
+    model: str = "mercury-2",
+) -> dict:
+    """Build a generic JSON request body for the chat completions endpoint."""
     return {
         "model": model,
         "messages": [
-            {"role": "system", "content": LAYER_1_SYSTEM_PROMPT},
-            {"role": "user", "content": build_user_message(problem, context_bundle)},
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message},
         ],
     }
 
@@ -159,19 +237,21 @@ def parse_response(response_body: bytes) -> str:
     return content
 
 
-def call_mercury(
-    problem: str,
-    context_bundle: ContextBundle,
+def _call_api(
+    system_prompt: str,
+    user_message: str,
     api_key: str,
     base_url: str = "https://api.inceptionlabs.ai/v1",
     model: str = "mercury-2",
     timeout: int = 120,
 ) -> str:
-    """Call the Mercury-2 chat completions endpoint and return the response text.
+    """Low-level API call: send system_prompt + user_message, return response text.
+
+    This is the shared transport for both Layer 1 and Layer 2.
 
     Args:
-        problem: The problem statement to reflect on.
-        context_bundle: Assembled context from Module 1.
+        system_prompt: The system prompt for the call.
+        user_message: The user message content.
         api_key: Bearer token for the API.
         base_url: API base URL (no trailing slash).
         model: Model identifier.
@@ -184,7 +264,7 @@ def call_mercury(
         MercuryError: On any API or network error.
     """
     url = f"{base_url.rstrip('/')}/chat/completions"
-    body = build_request_body(problem, context_bundle, model=model)
+    body = _build_request_body(system_prompt, user_message, model=model)
     payload = json.dumps(body).encode("utf-8")
 
     req = urllib.request.Request(
@@ -212,3 +292,106 @@ def call_mercury(
         raise MercuryError(f"Request to {url} timed out after {timeout}s") from None
 
     return parse_response(response_body)
+
+
+def call_layer_1(
+    problem: str,
+    context_bundle: ContextBundle,
+    api_key: str,
+    base_url: str = "https://api.inceptionlabs.ai/v1",
+    model: str = "mercury-2",
+    timeout: int = 120,
+) -> str:
+    """Call Layer 1 (conflict model) and return the response text.
+
+    Args:
+        problem: The problem statement to reflect on.
+        context_bundle: Assembled context from Module 1.
+        api_key: Bearer token for the API.
+        base_url: API base URL (no trailing slash).
+        model: Model identifier.
+        timeout: Request timeout in seconds.
+
+    Returns:
+        The conflict model text.
+
+    Raises:
+        MercuryError: On any API or network error.
+    """
+    user_message = build_user_message(problem, context_bundle)
+    return _call_api(
+        system_prompt=LAYER_1_SYSTEM_PROMPT,
+        user_message=user_message,
+        api_key=api_key,
+        base_url=base_url,
+        model=model,
+        timeout=timeout,
+    )
+
+
+def call_layer_2(
+    conflict_model: str,
+    api_key: str,
+    base_url: str = "https://api.inceptionlabs.ai/v1",
+    model: str = "mercury-2",
+    timeout: int = 120,
+) -> str:
+    """Call Layer 2 (dream scene) and return the response text.
+
+    Args:
+        conflict_model: The Layer 1 output (conflict model text).
+        api_key: Bearer token for the API.
+        base_url: API base URL (no trailing slash).
+        model: Model identifier.
+        timeout: Request timeout in seconds.
+
+    Returns:
+        The dream scene text.
+
+    Raises:
+        MercuryError: On any API or network error.
+    """
+    return _call_api(
+        system_prompt=LAYER_2_SYSTEM_PROMPT,
+        user_message=conflict_model,
+        api_key=api_key,
+        base_url=base_url,
+        model=model,
+        timeout=timeout,
+    )
+
+
+def call_mercury(
+    problem: str,
+    context_bundle: ContextBundle,
+    api_key: str,
+    base_url: str = "https://api.inceptionlabs.ai/v1",
+    model: str = "mercury-2",
+    timeout: int = 120,
+) -> str:
+    """Call the Mercury-2 chat completions endpoint and return the response text.
+
+    Backward-compatible wrapper around call_layer_1.
+
+    Args:
+        problem: The problem statement to reflect on.
+        context_bundle: Assembled context from Module 1.
+        api_key: Bearer token for the API.
+        base_url: API base URL (no trailing slash).
+        model: Model identifier.
+        timeout: Request timeout in seconds.
+
+    Returns:
+        The assistant's response text.
+
+    Raises:
+        MercuryError: On any API or network error.
+    """
+    return call_layer_1(
+        problem=problem,
+        context_bundle=context_bundle,
+        api_key=api_key,
+        base_url=base_url,
+        model=model,
+        timeout=timeout,
+    )

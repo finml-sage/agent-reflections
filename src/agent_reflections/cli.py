@@ -8,7 +8,7 @@ from pathlib import Path
 
 from .config import load_config
 from .context import assemble_context
-from .mercury import MercuryError, call_mercury, read_api_key
+from .mercury import MercuryError, call_layer_1, call_layer_2, read_api_key
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -55,9 +55,9 @@ def main(argv: list[str] | None = None) -> None:
         print(f"Error: {exc}", file=sys.stderr)
         raise SystemExit(1) from None
 
-    # Call Mercury-2 (Layer 1)
+    # Layer 1: Conflict model (silent — output not printed)
     try:
-        response = call_mercury(
+        conflict_model = call_layer_1(
             problem=args.problem,
             context_bundle=bundle,
             api_key=api_key,
@@ -65,10 +65,22 @@ def main(argv: list[str] | None = None) -> None:
             model=config.model,
         )
     except MercuryError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
+        print(f"Error (Layer 1): {exc}", file=sys.stderr)
         raise SystemExit(1) from None
 
-    print(response)
+    # Layer 2: Dream scene (printed to stdout)
+    try:
+        dream = call_layer_2(
+            conflict_model=conflict_model,
+            api_key=api_key,
+            base_url=config.base_url,
+            model=config.model,
+        )
+    except MercuryError as exc:
+        print(f"Error (Layer 2): {exc}", file=sys.stderr)
+        raise SystemExit(1) from None
+
+    print(dream)
 
 
 if __name__ == "__main__":
