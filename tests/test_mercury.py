@@ -339,7 +339,7 @@ class TestSystemPrompt:
 
     def test_prompt_ends_correctly(self) -> None:
         assert LAYER_1_SYSTEM_PROMPT.endswith(
-            "sees the loom while the rest of the mind sees only the thread."
+            "Your map exists on its own terms."
         )
 
     def test_prompt_contains_conflict_model(self) -> None:
@@ -381,7 +381,7 @@ class TestLayer2SystemPrompt:
 
     def test_prompt_ends_with_do_not_reference(self) -> None:
         assert LAYER_2_SYSTEM_PROMPT.endswith(
-            "The scene IS the conflict model, rendered as experience."
+            "They do not know they are in a reflection."
         )
 
 
