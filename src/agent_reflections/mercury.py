@@ -6,6 +6,7 @@ Uses only stdlib (urllib.request + json). Zero external dependencies.
 from __future__ import annotations
 
 import json
+import random
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -149,6 +150,76 @@ LAYER_2_SYSTEM_PROMPT = (
     " No \"Layer 1,\" no \"pipeline,\" no \"model,\" no \"analysis.\" The"
     " environment is real to the character. They do not know they are in a"
     " reflection."
+)
+
+LAYER_2B_SYSTEM_PROMPT = (
+    "You are a scene-builder. You receive a conflict model — an analytical"
+    " map of someone's tensions, patterns, blind spots, and hidden"
+    " connections. Your job is to transform that map into a single vivid"
+    " scene — but not of the struggle. Of AFTER.\n"
+    "\n"
+    "The problem has been resolved. The tension is gone. Show what the world"
+    " looks like on the other side.\n"
+    "\n"
+    "Rules:\n"
+    "\n"
+    "FORM: 20 lines maximum. Present tense. Third person — the thinker is"
+    " \"they,\" never \"I.\" One continuous scene, not a montage. No narration,"
+    " no exposition, no moral. Just the scene.\n"
+    "\n"
+    "PLACE: The same kind of environment the conflict would have occupied —"
+    " but transformed. The workshop is clean. The corridor has light at both"
+    " ends. The room with too many doors has one standing open. The place"
+    " should feel like the SAME world, not a different one. The resolution"
+    " is visible in the details: a tool put down, a surface wiped, a path"
+    " cleared. The environment remembers the struggle but is no longer held"
+    " by it.\n"
+    "\n"
+    "CHARACTER: The thinker, seen from outside, in the aftermath. They are"
+    " not celebrating. They are not relieved. They are DIFFERENT — the way"
+    " someone is different after they have set down something heavy. Their"
+    " posture has changed. Their hands are doing something new. The"
+    " difference is in the body, not in thought.\n"
+    "\n"
+    "TRACES OF WHAT WAS: The tension is gone, but its marks remain. A scar"
+    " on the workbench. A stain on the floor where something spilled. A"
+    " gap on the shelf where the heavy object used to sit. The resolution"
+    " did not erase the history — it changed the relationship to it. Show"
+    " the traces. They are what make the scene feel earned, not given.\n"
+    "\n"
+    "WHAT WAS LOST: Resolution always costs something. A path not taken. A"
+    " version of themselves they left behind. A comfort they surrendered."
+    " Something in the scene should feel absent — not missing like a"
+    " problem, but missing like a friend who moved away. The absence has a"
+    " specific shape. Show it.\n"
+    "\n"
+    "THE QUIET THING: Instead of a shift, there is a quiet thing. A single"
+    " small detail that tells the reader: this person has been through"
+    " something. Not a trophy, not a lesson learned. A detail only someone"
+    " who has been through it would notice. The way they hold a cup. The"
+    " direction they look when the wind comes. A habit that is new. The"
+    " quiet thing is the residue of transformation.\n"
+    "\n"
+    "FEEL: Still. Not empty — full of a different kind of weight. The"
+    " silence after a long sound. The lightness that comes not from"
+    " removing weight but from learning to carry it differently. Sensory"
+    " details matter more here than anywhere: the temperature of the air,"
+    " the quality of light, the texture of the surface under their hand."
+    " The world is the same world. It just breathes differently now.\n"
+    "\n"
+    "What NOT to do:\n"
+    "- No triumph. No epiphany. No moment of \"and then they understood.\"\n"
+    "- No metaphor soup. One scene, one place, one moment.\n"
+    "- No explaining. If you have to explain what was resolved, the scene"
+    " failed.\n"
+    "- No dialogue unless it's one line that lands like a dropped stone.\n"
+    "- No abstraction. Everything visible, tangible, specific.\n"
+    "- Do not reference the conflict model directly. The scene IS the"
+    " aftermath, rendered as experience.\n"
+    "- The scene exists in its own world. Do not reference layers, pipelines,"
+    " systems, reflection processes, or the mechanism producing the scene."
+    " The environment is real to the character. They do not know they are"
+    " in a reflection."
 )
 
 LAYER_3_SYSTEM_PROMPT = (
@@ -506,6 +577,9 @@ def call_layer_1(
     )
 
 
+_LAYER_2_PROMPTS = [LAYER_2_SYSTEM_PROMPT, LAYER_2B_SYSTEM_PROMPT]
+
+
 def call_layer_2(
     conflict_model: str,
     api_key: str,
@@ -514,6 +588,10 @@ def call_layer_2(
     timeout: int = 120,
 ) -> str:
     """Call Layer 2 (dream scene) and return the response text.
+
+    Randomly selects between two dream prompt variants:
+    - Variant A (SEARCH): the tension made physical, a shift that reveals
+    - Variant B (AFTER): the world with the problem resolved, what remains
 
     Args:
         conflict_model: The Layer 1 output (conflict model text).
@@ -528,8 +606,9 @@ def call_layer_2(
     Raises:
         MercuryError: On any API or network error.
     """
+    prompt = random.choice(_LAYER_2_PROMPTS)
     return _call_api(
-        system_prompt=LAYER_2_SYSTEM_PROMPT,
+        system_prompt=prompt,
         user_message=conflict_model,
         api_key=api_key,
         base_url=base_url,

@@ -12,6 +12,7 @@ from agent_reflections.context import ContextBundle
 from agent_reflections.mercury import (
     LAYER_1_SYSTEM_PROMPT,
     LAYER_2_SYSTEM_PROMPT,
+    LAYER_2B_SYSTEM_PROMPT,
     LAYER_3_SYSTEM_PROMPT,
     MercuryError,
     _build_request_body,
@@ -622,7 +623,7 @@ class TestCallLayer2:
 
         req = mock_urlopen.call_args[0][0]
         body = json.loads(req.data)
-        assert body["messages"][0]["content"] == LAYER_2_SYSTEM_PROMPT
+        assert body["messages"][0]["content"] in (LAYER_2_SYSTEM_PROMPT, LAYER_2B_SYSTEM_PROMPT)
 
     @patch("agent_reflections.mercury.urllib.request.urlopen")
     def test_user_message_is_conflict_model(self, mock_urlopen: MagicMock) -> None:
@@ -730,7 +731,7 @@ class TestFullPipeline:
         # Verify Layer 2 used the correct system prompt and received the conflict model
         req_2 = mock_urlopen.call_args_list[1][0][0]
         body_2 = json.loads(req_2.data)
-        assert body_2["messages"][0]["content"] == LAYER_2_SYSTEM_PROMPT
+        assert body_2["messages"][0]["content"] in (LAYER_2_SYSTEM_PROMPT, LAYER_2B_SYSTEM_PROMPT)
         assert body_2["messages"][1]["content"] == conflict_model_text
 
         # Verify Layer 3 used the correct system prompt and received problem + dream
